@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codeforces Contest Tracker</title>
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet">
+<style>
+:root{
+--bg:#0f172a;--card:#1e293b;--border:#334155;--text:#f8fafc;
+--green:#22c55e;--blue:#3b82f6;--red:#ef4444;--gray:#64748b;
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,Arial,sans-serif;background:var(--bg);color:var(--text)}
+.header{display:flex;justify-content:space-between;align-items:center;padding:18px 24px;border-bottom:1px solid var(--border)}
+.grid{display:grid;grid-template-columns:320px 1fr;min-height:calc(100vh - 70px)}
+.sidebar{padding:20px;border-right:1px solid var(--border);overflow:auto}
+.main{padding:20px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:16px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px}
+.countdown{text-align:center;font-size:28px;font-weight:bold}
+#calendar{background:var(--card);padding:12px;border-radius:16px}
+.upcoming{margin-top:12px}
+.contest{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px}
+.badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#334155;font-size:12px}
+button{background:var(--blue);color:white;border:none;padding:8px 12px;border-radius:8px;cursor:pointer}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);align-items:center;justify-content:center}
+.modal-content{width:min(500px,90vw);background:var(--card);padding:20px;border-radius:16px}
+@media(max-width:900px){
+.grid{grid-template-columns:1fr}
+.sidebar{border-right:none;border-bottom:1px solid var(--border)}
+.stats{grid-template-columns:repeat(2,1fr)}
+}
+</style>
+</head>
+<body>
+<div class="header">
+<h2>🚀 Codeforces Contest Tracker</h2>
+<button onclick="location.reload()">Refresh</button>
+</div>
+
+<div class="grid">
+<div class="sidebar">
+<div class="card">
+<h3>⏳ Next Contest</h3>
+<div id="nextContest">Loading...</div>
+<div class="countdown" id="countdown">--:--:--</div>
+</div>
+
+<div class="upcoming">
+<h3>Upcoming Contests</h3>
+<div id="upcomingList"></div>
+</div>
+</div>
+
+<div class="main">
+<div class="stats">
+<div class="stat"><h4>Upcoming</h4><div id="upcomingCount">0</div></div>
+<div class="stat"><h4>Past 30 Days</h4><div id="pastCount">0</div></div>
+<div class="stat"><h4>Div.2</h4><div id="div2Count">0</div></div>
+<div class="stat"><h4>Educational</h4><div id="eduCount">0</div></div>
+</div>
+<div id="calendar"></div>
+</div>
+</div>
+
+<div class="modal" id="modal">
+<div class="modal-content">
+<h2 id="mTitle"></h2>
+<p id="mStart"></p>
+<p id="mDuration"></p>
+<p><a id="mLink" target="_blank">Open Contest</a></p>
+<p><a id="mGoogle" target="_blank">Add to Google Calendar</a></p>
+<button onclick="closeModal()">Close</button>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<script>
+let nextContestTs=null;
+
+function closeModal(){document.getElementById('modal').style.display='none';}
+
+function updateCountdown(){
+ if(!nextContestTs) return;
+ const diff=Math.max(0,nextContestTs*1000-Date.now());
+ const d=Math.floor(diff/86400000);
+ const h=Math.floor(diff%86400000/3600000);
+ const m=Math.floor(diff%3600000/60000);
+ const s=Math.floor(diff%60000/1000);
+ document.getElementById('countdown').innerText=`${d}d ${h}h ${m}m ${s}s`;
+}
+setInterval(updateCountdown,1000);
+
+async function load(){
+ const res=await fetch("https://codeforces.com/api/contest.list");
+ const data=await res.json();
+ const now=Date.now()/1000;
+ const monthAgo=now-30*24*3600;
+
+ const contests=data.result.filter(c=>c.phase==="BEFORE" || c.startTimeSeconds>=monthAgo);
+
+ const upcoming=data.result.filter(c=>c.phase==="BEFORE")
+ .sort((a,b)=>a.startTimeSeconds-b.startTimeSeconds);
+
+ document.getElementById('upcomingCount').innerText=upcoming.length;
+ document.getElementById('pastCount').innerText=contests.filter(c=>c.phase!=="BEFORE").length;
+ document.getElementById('div2Count').innerText=data.result.filter(c=>c.name.includes("Div. 2")).length;
+ document.getElementById('eduCount').innerText=data.result.filter(c=>c.name.includes("Educational")).length;
+
+ if(upcoming.length){
+   nextContestTs=upcoming[0].startTimeSeconds;
+   document.getElementById('nextContest').innerHTML="<b>"+upcoming[0].name+"</b>";
+ }
+
+ document.getElementById('upcomingList').innerHTML=upcoming.slice(0,10).map(c=>
+ `<div class="contest">
+ <span class="badge">Upcoming</span>
+ <div><b>${c.name}</b></div>
+ <small>${new Date(c.startTimeSeconds*1000).toLocaleString()}</small>
+ </div>`).join('');
+
+ const events=contests.map(c=>({
+   title:c.name,
+   start:new Date(c.startTimeSeconds*1000),
+   end:new Date((c.startTimeSeconds+c.durationSeconds)*1000),
+   extendedProps:c,
+   color:c.phase==="BEFORE"?"#22c55e":"#64748b"
+ }));
+
+ const cal=new FullCalendar.Calendar(document.getElementById('calendar'),{
+   initialView:'dayGridMonth',
+   height:'auto',
+   headerToolbar:{left:'prev,next today',center:'title',right:'dayGridMonth,timeGridWeek'},
+   events,
+   eventClick(info){
+      const c=info.event.extendedProps;
+      document.getElementById('mTitle').innerText=c.name;
+      document.getElementById('mStart').innerText="Start: "+new Date(c.startTimeSeconds*1000).toLocaleString();
+      document.getElementById('mDuration').innerText="Duration: "+Math.round(c.durationSeconds/3600*10)/10+" hrs";
+      const link=`https://codeforces.com/contest/${c.id}`;
+      document.getElementById('mLink').href=link;
+
+      const start=new Date(c.startTimeSeconds*1000).toISOString().replace(/[-:]/g,'').split('.')[0]+"Z";
+      const end=new Date((c.startTimeSeconds+c.durationSeconds)*1000).toISOString().replace(/[-:]/g,'').split('.')[0]+"Z";
+      document.getElementById('mGoogle').href=
+      `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(c.name)}&dates=${start}/${end}&details=${encodeURIComponent(link)}`;
+
+      document.getElementById('modal').style.display='flex';
+   }
+ });
+ cal.render();
+}
+load().catch(()=>{
+document.body.insertAdjacentHTML('beforeend','<p style="padding:20px">If contests do not load, Codeforces may be blocking direct browser requests (CORS). Use a small backend proxy.</p>');
+});
+</script>
+</body>
+</html>
